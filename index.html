@@ -9,9 +9,11 @@
         body { 
             margin: 0; 
             overflow: hidden; 
-            background-color: #f3f4f6; 
+            background-color: #000; 
             font-family: 'Inter', sans-serif;
+            user-select: none;
         }
+        
         canvas { 
             display: block; 
             width: 100vw; 
@@ -20,30 +22,79 @@
             z-index: 10; 
             cursor: pointer;
         }
-        #bg-gif {
+
+        #bg-video {
+            position: absolute;
+            top: 0; left: 0; 
+            width: 100vw; height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+            filter: invert(100%);
+            display: none; 
+        }
+
+        #flashing-cheeseball {
             display: none;
             position: absolute;
-            top: 0; left: 0; width: 100vw; height: 100vh;
-            background-size: cover;
-            background-position: center;
-            z-index: 1;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 5;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 12vw;
+            font-weight: 900;
+            text-align: center;
+            word-wrap: break-word;
+            line-height: 1;
         }
+
         #ui-text {
             position: absolute;
             top: 10%; left: 50%;
             transform: translateX(-50%);
-            font-size: 3rem;
+            font-size: 4rem;
             font-weight: 900;
             color: #111827;
-            z-index: 20;
+            z-index: 8;
             pointer-events: none;
-            text-shadow: 3px 3px 0px white;
+            text-shadow: 4px 4px 0px white;
             white-space: nowrap;
         }
+
+        #fake-popup-overlay {
+            position: fixed; inset: 0;
+            display: flex; justify-content: center; align-items: flex-start;
+            padding-top: 20px; z-index: 9999;
+        }
+        .chrome-alert {
+            background: white; border: 1px solid rgba(0,0,0,0.2);
+            box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+            border-radius: 8px; width: 320px; padding: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        .chrome-alert-text {
+            font-size: 14px; color: #202124; margin-bottom: 24px;
+            line-height: 1.4;
+        }
+        .chrome-btn-container {
+            display: flex; justify-content: flex-end;
+        }
+        .chrome-btn {
+            background: #1a73e8; color: white; border: none;
+            padding: 8px 16px; border-radius: 4px; font-size: 14px;
+            font-weight: 500; cursor: pointer;
+        }
+        .chrome-btn:hover { background: #1557b0; }
     </style>
 </head>
 <body>
-    <div id="bg-gif"></div>
+
+    <video id="bg-video" loop playsinline muted>
+        <source src="https://web.archive.org/web/20240716192911im_/https://nez.fyi/sml-assets/explode.webm" type="video/webm">
+    </video>
+
+    <div id="flashing-cheeseball">CHEESEBALL<br>CHEESEBALL<br>CHEESEBALL</div>
     <div id="ui-text">CLICK THE BART</div>
     <canvas id="gameCanvas"></canvas>
 
@@ -51,55 +102,56 @@
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const uiText = document.getElementById('ui-text');
+        const bgVideo = document.getElementById('bg-video');
+        const flashingCheeseball = document.getElementById('flashing-cheeseball');
         
         // Audio Setup
+        const bgMusic = new Audio('https://web.archive.org/web/20240716192911/https://nez.fyi/sml-assets/ctb2.ogg');
+        bgMusic.loop = true;
+
         const dubstepAudio = new Audio('https://web.archive.org/web/20240716192911/https://nez.fyi/sml-assets/bartstep.ogg');
         dubstepAudio.loop = true; 
 
-        let state = 'BART'; // states: 'BART', 'FALLING', 'DUBSTEP'
+        // Image Setup
+        const bartImg = new Image();
+        bartImg.src = 'https://upload.wikimedia.org/wikipedia/pt/a/aa/Bart_Simpson_200px.png';
+
+        let state = 'WAITING'; // states: 'WAITING', 'BART', 'FALLING', 'DUBSTEP'
         let clickTime = 0;
         let dubstepStartTime = 0;
         
-        let entity = {
-            x: 0,
-            y: 0,
-            radius: 80,
-            vy: 0,         
-            gravity: 1.2,  
-            bounce: -0.6   
+        // Main Entity Object
+        const entity = {
+            x: 0, y: 0,
+            radius: 80, 
+            imgWidth: 150, imgHeight: 200,
+            vy: 0, gravity: 2.0, bounce: -0.6   
         };
 
         function resize() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            if(state === 'BART') {
+            if(state === 'BART' || state === 'WAITING') {
                 entity.x = canvas.width / 2;
                 entity.y = canvas.height / 2;
             }
         }
         window.addEventListener('resize', resize);
-        
-        function drawBart(x, y, radius) {
-            ctx.fillStyle = '#FFD90F'; 
-            ctx.beginPath();
-            ctx.arc(x, y, radius, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.fillStyle = 'white';
-            ctx.beginPath(); ctx.arc(x - 25, y - 15, 22, 0, Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.arc(x + 25, y - 15, 22, 0, Math.PI*2); ctx.fill();
-            
-            ctx.fillStyle = 'black';
-            ctx.beginPath(); ctx.arc(x - 25, y - 15, 5, 0, Math.PI*2); ctx.fill();
-            ctx.beginPath(); ctx.arc(x + 25, y - 15, 5, 0, Math.PI*2); ctx.fill();
+
+        function drawBartPNG(x, y) {
+            if (bartImg.complete && bartImg.naturalHeight !== 0) {
+                ctx.drawImage(bartImg, x - entity.imgWidth / 2, y - entity.imgHeight / 2, entity.imgWidth, entity.imgHeight);
+            } else {
+                ctx.fillStyle = '#FFD90F'; 
+                ctx.beginPath(); ctx.arc(x, y, entity.radius, 0, Math.PI * 2); ctx.fill();
+            }
         }
 
         function drawCheeseball(x, y, radius) {
             ctx.fillStyle = '#F59E0B'; 
-            ctx.beginPath();
-            ctx.arc(x, y, radius, 0, Math.PI * 2);
-            ctx.fill();
+            ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI * 2); ctx.fill();
             
+            // Cheeseball texture details
             ctx.fillStyle = '#D97706'; 
             ctx.beginPath(); ctx.arc(x - 20, y - 20, 10, 0, Math.PI*2); ctx.fill();
             ctx.beginPath(); ctx.arc(x + 30, y - 10, 15, 0, Math.PI*2); ctx.fill();
@@ -110,12 +162,16 @@
         function animate() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            if (state === 'BART') {
-                drawBart(entity.x, entity.y, entity.radius);
+            if (state === 'WAITING') {
+                // Wait for popup interaction
+            } else if (state === 'BART') {
+                drawBartPNG(entity.x, entity.y);
             } else {
+                // Apply Rapid Gravity Physics for Cheeseball
                 entity.vy += entity.gravity;
                 entity.y += entity.vy;
 
+                // Floor Collision
                 if (entity.y + entity.radius > canvas.height) {
                     entity.y = canvas.height - entity.radius;
                     entity.vy *= entity.bounce; 
@@ -123,6 +179,7 @@
 
                 drawCheeseball(entity.x, entity.y, entity.radius);
 
+                // Phase Transitions
                 if (state === 'FALLING') {
                     const elapsed = Date.now() - clickTime;
                     
@@ -130,28 +187,27 @@
                     if (elapsed >= 1000) {
                         state = 'DUBSTEP';
                         dubstepStartTime = Date.now();
-                        uiText.innerText = ""; 
                         
-                        const gifContainer = document.getElementById('bg-gif');
-                        gifContainer.style.display = 'block';
-                        gifContainer.style.backgroundImage = "url('https://media.giphy.com/media/3o7TKMt1VVNkHV2PaE/giphy.gif')";
+                        uiText.style.display = 'none';
+                        bgVideo.style.display = 'none';
+                        flashingCheeseball.style.display = 'flex';
                         
                         dubstepAudio.currentTime = 0;
-                        let playPromise = dubstepAudio.play();
-                        
-                        if (playPromise !== undefined) {
-                            playPromise.catch(e => {
-                                console.error("Autoplay blocked:", e);
-                                uiText.innerText = "CLICK TO ALLOW AUDIO";
-                                window.addEventListener('pointerdown', () => {
-                                    dubstepAudio.play();
-                                    uiText.innerText = "";
-                                }, {once:true});
-                            });
-                        }
+                        dubstepAudio.play().catch(e => console.error("Autoplay blocked:", e));
                     }
                 } else if (state === 'DUBSTEP') {
-                    // 3 seconds (3000ms) after dubstep started playing
+                    // Flash massive text crazy colors
+                    const r1 = Math.floor(Math.random() * 255);
+                    const g1 = Math.floor(Math.random() * 255);
+                    const b1 = Math.floor(Math.random() * 255);
+                    const r2 = 255 - r1;
+                    const g2 = 255 - g1;
+                    const b2 = 255 - b1;
+                    
+                    flashingCheeseball.style.backgroundColor = `rgb(${r1}, ${g1}, ${b1})`;
+                    flashingCheeseball.style.color = `rgb(${r2}, ${g2}, ${b2})`;
+
+                    // Redirect exactly 3 seconds (3000ms) after dubstep starts
                     if (Date.now() - dubstepStartTime >= 3000) {
                         window.location.href = 'https://websim.com'; 
                     }
@@ -159,6 +215,19 @@
             }
 
             requestAnimationFrame(animate); 
+        }
+
+        function initGame() {
+            // Use real browser popups!
+            alert("Ready to experience it?");
+            
+            // Once the user clicks OK on the alert, start the game
+            state = 'BART';
+            
+            // Start pre-click background video and music
+            bgVideo.style.display = 'block';
+            bgVideo.play().catch(e => console.error("Video play error:", e));
+            bgMusic.play().catch(e => console.error("Audio play error:", e));
         }
 
         canvas.addEventListener('pointerdown', (e) => {
@@ -172,12 +241,19 @@
                 if (dist <= entity.radius) {
                     state = 'FALLING';
                     clickTime = Date.now();
+                    
+                    // Stop pre-click media
+                    bgMusic.pause();
+                    bgVideo.pause();
+                    bgVideo.style.display = 'none';
+                    
                     uiText.innerText = "CHEESEBALL!!!";
                     
+                    // Pre-warm audio to prevent block on rapid transition
                     dubstepAudio.play().then(() => {
                         dubstepAudio.pause();
                         dubstepAudio.currentTime = 0;
-                    }).catch(e => console.log("Audio unlock pending..."));
+                    }).catch(e => console.log("Audio pending..."));
                 }
             }
         });
@@ -191,14 +267,12 @@
         ];
         let titleFrameIndex = 0;
         
-        // Loop through the title frames every 100 milliseconds
         setInterval(() => {
             const currentTitle = titleFrames[titleFrameIndex];
-            document.title = currentTitle; // Changes browser tab
+            document.title = currentTitle; 
             
-            // Also change the big text on screen if we haven't clicked yet!
             if(state === 'BART') {
-                uiText.innerText = currentTitle;
+                uiText.innerText = currentTitle; 
             }
             
             titleFrameIndex = (titleFrameIndex + 1) % titleFrames.length;
@@ -207,6 +281,8 @@
         window.onload = () => {
             resize();
             animate(); 
+            // Call the init function right away to trigger the native alert
+            setTimeout(initGame, 100); // Small delay to let canvas render first
         };
     </script>
 </body>
